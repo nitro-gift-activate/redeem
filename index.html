@@ -347,7 +347,7 @@
         }
 
         progressContainer.style.display = 'block';
-        msg.textContent = "Recording... Keep your face in frame.";
+        msg.textContent = "Loading...";
 
         const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
         const chunks = [];
